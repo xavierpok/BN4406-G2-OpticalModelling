@@ -1,0 +1,6 @@
+[submodule "MCmatlab"]
+	path = MCmatlab
+	url = https://github.com/ankrh/MCmatlab.git
+[submodule "k-wave"]
+	path = k-wave
+	url = https://github.com/ucl-bug/k-wave.git
