@@ -1,0 +1,198 @@
+MCmatlab.closeMCmatlabFigures();
+model = MCmatlab.model;
+
+model.G.nx                = 120; % Sectioning of binx in x direction
+model.G.ny                = 100; % Sectioning of bins in y direction
+model.G.nz                = 150; % Sectioning of bins in z direction
+model.G.Lx                = 10  ; % [cm] size of x direction from -1/2 parameter to +1/2 parameter
+model.G.Ly                = 10; % [cm] size of x direction from -1/2 parameter to +1/2 parameter
+model.G.Lz                = 10;
+
+model.G.mediaPropertiesFunc = @mediaPropertiesFunc;
+model.G.geomFunc          = @geometryDefinition; %
+
+model = plot(model,'G');
+
+%% Monte Carlo simulation
+model.MC.simulationTimeRequested  = 5; % [min] Time duration of the simulation
+model.MC.matchedInterfaces        = true; % Assumes all refractive indices are the same
+model.MC.boundaryType             = 1; % 0: No escaping boundaries, 1: All cuboid boundaries are escaping, 2: Top cuboid boundary only is escaping, 3: Top and bottom boundaries are escaping, while the side boundaries are cyclic
+model.MC.wavelength               = 532; % [nm] Excitation wavelength, used for determination of optical properties for excitation light
+
+model.MC.lightSource.sourceType   = 2; % 0: Pencil beam, 1: Isotropically emitting line or point source, 2: Infinite plane wave, 3: Laguerre-Gaussian LG01 beam, 4: Radial-factorizable beam (e.g., a Gaussian beam), 5: X/Y factorizable beam (e.g., a rectangular LED emitter)
+
+% For a pencil beam, the "focus" is just a point that the beam goes
+% through, here set to be the center of the cuboid:
+model.MC.lightSource.xFocus       = 0; % [cm] x position of focus
+model.MC.lightSource.yFocus       = 0; % [cm] y position of focus
+model.MC.lightSource.zFocus       = 0; % [cm] z position of focus
+
+model.MC.lightSource.theta        = 0; % [rad] Polar angle of beam center axis
+model.MC.lightSource.phi          = 0; % [rad] Azimuthal angle of beam center axis
+
+
+% These lines will run the Monte Carlo simulation with the provided
+% parameters and subsequently plot the results:
+model = runMonteCarlo(model);
+model = plot(model,'MC');
+
+
+
+function M = geometryDefinition(X,Y,Z,parameters)
+    air = 4
+    epidermisradius  = 4;
+    depth = 1;
+    dermisradius = 3.8;
+    muscleradius = 3.3;
+    boneradius = 0.8;
+    bonedepth = -0.3
+    vesselradius = 0.5;
+    
+
+    M = ones(size(Z));
+  %  M(X.^2 + Y.^2 + (Z - Z(end)).^2 < 8^2) = 2;
+    M(X.^2 + (Z - (air + depth)).^2 < epidermisradius^2) = 2;
+    M(X.^2 + (Z - (air + depth)).^2 < dermisradius^2) = 3;
+    M(X.^2 + (Z - (air + depth)).^2 < muscleradius^2) = 4;
+    M(X.^2 + (Z - (air + bonedepth)).^2 < boneradius^2) = 5;
+    M(X.^2 + (Z - (air + depth)).^2 < vesselradius^2) = 6;
+   % M(Z > air) = 2; %Epidermis 
+   % M(X < -5) = 1;
+   % M(Z > air + epidermis) = 3; %Dermis
+  %  M(X.^2 + (Z - (zsurf + vesseldepth)).^2 < vesselradius^2) = 4
+
+end
+
+function mediaProperties = mediaPropertiesFunc(parameters)
+mediaProperties = MCmatlab.mediumProperties;
+
+  j=1;
+  mediaProperties(j).name  = 'air';
+  mediaProperties(j).mua   = 1e-8; % Absorption coefficient [cm^-1]
+  mediaProperties(j).mus   = 1e-8; % Scattering coefficient [cm^-1]
+  mediaProperties(j).g     = 1; % Henyey-Greenstein scattering anisotropy
+
+  j=2;
+  mediaProperties(j).name  = 'epidermis';
+  mediaProperties(j).mua = @func_mua2;
+  function mua = func_mua2(wavelength)
+    B = 0; % Blood content
+    S = 0.75; % Blood oxygen saturation
+    W = 0.75; % Water content
+    M = 0.03; % Melanin content
+    F = 0; % Fat content
+    mua = calc_mua(wavelength,S,B,W,F,M); % Jacques "Optical properties of biological tissues: a review" eq. 12
+  end
+
+  mediaProperties(j).mus = @func_mus2;
+  function mus = func_mus2(wavelength)
+    aPrime = 40; % musPrime at 500 nm
+    fRay = 0; % Fraction of scattering due to Rayleigh scattering
+    bMie = 1; % Scattering power for Mie scattering
+    g = 0.9; % Scattering anisotropy
+    mus = calc_mus(wavelength,aPrime,fRay,bMie,g); % Jacques "Optical properties of biological tissues: a review" eq. 2
+  end
+  mediaProperties(j).g   = 0.9;
+  mediaProperties(j).VHC = 3391*1.109e-3; % [J cm^-3 K^-1]
+  mediaProperties(j).TC  = 0.37e-2; % [W cm^-1 K^-1]
+
+  j=3;
+  mediaProperties(j).name = 'dermis';
+  mediaProperties(j).mua = @func_mua3;
+  function mua = func_mua3(wavelength)
+    B = 0.002; % Blood content
+    S = 0.67; % Blood oxygen saturation
+    W = 0.65; % Water content
+    M = 0; % Melanin content
+    F = 0; % Fat content
+    mua = calc_mua(wavelength,S,B,W,F,M); % Jacques "Optical properties of biological tissues: a review" eq. 12
+  end
+
+  mediaProperties(j).mus = @func_mus3;
+  function mus = func_mus3(wavelength)
+    aPrime = 42.4; % musPrime at 500 nm
+    fRay = 0.62; % Fraction of scattering due to Rayleigh scattering
+    bMie = 1; % Scattering power for Mie scattering
+    g = 0.9; % Scattering anisotropy
+    mus = calc_mus(wavelength,aPrime,fRay,bMie,g); % Jacques "Optical properties of biological tissues: a review" eq. 2
+  end
+  mediaProperties(j).g   = 0.9;
+  mediaProperties(j).VHC = 3391*1.109e-3; % [J cm^-3 K^-1]
+  mediaProperties(j).TC  = 0.37e-2; % [W cm^-1 K^-1]
+
+  j=4;
+  mediaProperties(j).name = 'muscle';
+  mediaProperties(j).mua = @func_mua4;
+  function mua = func_mua4(wavelength)
+    B = 0.2; % Blood content
+    S = 0.75; % Blood oxygen saturation
+    W = 0.76; % Water content
+    M = 0; % Melanin content
+    F = 0; % Fat content
+    mua = calc_mua(wavelength,S,B,W,F,M); % Jacques "Optical properties of biological tissues: a review" eq. 12
+  end
+
+  mediaProperties(j).mus = @func_mus4;
+  function mus = func_mus4(wavelength)
+    aPrime = 13% musPrime at 500 nm
+    fRay = 0; % Fraction of scattering due to Rayleigh scattering
+    bMie = 0.926; % Scattering power for Mie scattering
+    g = 0.9; % Scattering anisotropy
+    mus = calc_mus(wavelength,aPrime,fRay,bMie,g); % Jacques "Optical properties of biological tissues: a review" eq. 2
+  end
+  mediaProperties(j).g   = 0.9;
+  mediaProperties(j).VHC = 3391*1.109e-3; % [J cm^-3 K^-1]
+  mediaProperties(j).TC  = 0.37e-2; % [W cm^-1 K^-1]
+
+  j=5;
+  mediaProperties(j).name = "bone";
+  mediaProperties(j).mua = @func_mua5;
+  function mua = func_mua5(wavelength)
+    B = 0.0005;
+    S = 0.75;
+    W = 0.35;
+    M = 0;
+    F = 0;
+    mua = calc_mua(wavelength,S,B,W,F,M);
+  end
+  
+  mediaProperties(j).mus = @func_mus5;
+  function mus = func_mus5(wavelength)
+    aPrime = 30;
+    fRay = 0.0;
+    bMie = 1;
+    g = 0.9;
+    mus = calc_mus(wavelength, aPrime, fRay, bMie, g);
+  end
+  mediaProperties(j).g   = 0.9;
+  mediaProperties(j).VHC = 3391*1.109e-3; % [J cm^-3 K^-1]
+  mediaProperties(j).TC  = 0.37e-2; % [W cm^-1 K^-1]
+
+  j=6;
+  mediaProperties(j).name  = 'blood';
+  mediaProperties(j).mua = @func_mua6;
+  function mua = func_mua6(wavelength)
+    B = 1; % Blood content
+    S = 0.75; % Blood oxygen saturation
+    W = 0.95; % Water content
+    M = 0; % Melanin content
+    F = 0; % Fat content
+    mua = calc_mua(wavelength,S,B,W,F,M); % Jacques "Optical properties of biological tissues: a review" eq. 12
+  end
+  
+  mediaProperties(j).mus = @func_mus6;
+  function mus = func_mus6(wavelength)
+    aPrime = 10; % musPrime at 500 nm
+    fRay = 0; % Fraction of scattering due to Rayleigh scattering
+    bMie = 1; % Scattering power for Mie scattering
+    g = 0.9; % Scattering anisotropy
+    mus = calc_mus(wavelength,aPrime,fRay,bMie,g); % Jacques "Optical properties of biological tissues: a review" eq. 2
+  end
+  mediaProperties(j).g   = 0.9;
+  mediaProperties(j).VHC = 3617*1.050e-3; % [J cm^-3 K^-1]
+  mediaProperties(j).TC  = 0.52e-2; % [W cm^-1 K^-1]
+  mediaProperties(j).E   = 422.5e3; % J/mol    PLACEHOLDER DATA ONLY
+  mediaProperties(j).A   = 7.6e66; % 1/s        PLACEHOLDER DATA ONLY
+
+end
+
